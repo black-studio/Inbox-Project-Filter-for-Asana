@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Inbox project filter for Asana",
-  "version": "1",
+  "version": "1.0",
   "description": "Adds a filter to Asana Inbox to filter notifications by project. No API needed.",
   "author": "Francesco Canovi",
   "homepage_url": "https://www.blackstudio.it",
   "permissions": [
     "activeTab",
-    "webNavigation"
+    "webNavigation",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://app.asana.com/*"
   ],
   "background": {
     "service_worker": "background.js"
