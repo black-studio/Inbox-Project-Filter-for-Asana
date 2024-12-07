@@ -53,8 +53,11 @@
         }
     `);
 
+// Variable to store the project filter element.
     let projectFilter;
+    // Variable to store the refresh icon element.
     let refreshIcon;
+
 
     function createProjectFilter() {
         const container = document.createElement('div');
