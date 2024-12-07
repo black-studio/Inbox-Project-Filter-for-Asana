@@ -1,1 +1,4 @@
 .idx/dev.nix
+
+# VS Code workspace files
+*.code-workspace
