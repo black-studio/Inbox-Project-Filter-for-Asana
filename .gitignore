@@ -1,4 +1,34 @@
 .idx/dev.nix
 
-# VS Code workspace files
+# IDE e editor
+.vscode/
 *.code-workspace
+.idea/
+
+# File di sistema
+.DS_Store
+Thumbs.db
+
+# File di configurazione locali
+config.local.js
+
+# Directory node (se usi npm/node.js)
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# File di build e distribuzione
+dist/
+build/
+
+# File temporanei
+*.tmp
+*.temp
+.idx/
+.cache/
+
+# File di ambiente
+.env
+.env.local
+.env.*.local
