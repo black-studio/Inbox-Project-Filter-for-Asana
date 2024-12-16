@@ -1,7 +1,8 @@
 (function() {
     'use strict';
 
-    // Define GM_addStyle for compatibility with non-Tampermonkey environments
+    // Polyfill for GM_addStyle to ensure compatibility with browsers 
+    // that don't support Tampermonkey's GM_addStyle function
     function GM_addStyle(css) {
         var head, style;
         head = document.getElementsByTagName('head')[0];
@@ -12,7 +13,8 @@
         head.appendChild(style);
     }
 
-    // Add styles
+    // CSS styles for the project filter UI components
+    // Includes styles for the container, select dropdown, and refresh button
     GM_addStyle(`
         #project-filter-container {
             display: flex;
@@ -53,12 +55,15 @@
         }
     `);
 
-// Variable to store the project filter element.
-    let projectFilter;
-    // Variable to store the refresh icon element.
-    let refreshIcon;
+    // Global variables to store UI elements
+    let projectFilter;  // Stores the select dropdown element
+    let refreshIcon;    // Stores the refresh button element
 
-
+    /**
+     * Creates the project filter UI elements
+     * Includes a refresh button and a dropdown select for projects
+     * @returns {HTMLElement} Container div with the filter elements
+     */
     function createProjectFilter() {
         const container = document.createElement('div');
         container.id = 'project-filter-container';
@@ -82,6 +87,11 @@
         return container;
     }
 
+    /**
+     * Adds the project filter to the Asana toolbar
+     * Only adds if the filter doesn't already exist
+     * Initializes the project list and sets up event listeners
+     */
     function addProjectFilter() {
         if (document.getElementById('project-filter-container')) return;
 
@@ -99,6 +109,11 @@
         projectFilter.addEventListener('change', filterTasks);
     }
 
+    /**
+     * Updates the project list in the dropdown
+     * Scans all visible inbox tasks and collects unique project names
+     * Maintains the current selection when updating the list
+     */
     function updateProjectList() {
         const tasks = document.querySelectorAll('.InboxExpandableThread');
         const projects = new Set();
@@ -123,6 +138,11 @@
         projectFilter.value = currentValue;
     }
 
+    /**
+     * Filters tasks based on the selected project
+     * Shows/hides tasks based on their project tag matching the selection
+     * Shows all tasks if no project is selected
+     */
     function filterTasks() {
         const selectedProject = projectFilter.value;
         const tasks = document.querySelectorAll('.InboxExpandableThread');
@@ -135,15 +155,29 @@
         });
     }
 
+    /**
+     * Manually triggers a refresh of the project list and reapplies filters
+     * Called when the refresh button is clicked
+     */
     function forceRefresh() {
         updateProjectList();
         filterTasks();
     }
 
+    /**
+     * Removes the project filter from the DOM
+     * Called when navigating away from the inbox
+     */
     function removeProjectFilter() {
         document.getElementById('project-filter-container')?.remove();
     }
 
+    /**
+     * Debounce utility function to limit the rate of function execution
+     * @param {Function} func - The function to debounce
+     * @param {number} wait - The debounce delay in milliseconds
+     * @returns {Function} Debounced version of the input function
+     */
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -156,6 +190,10 @@
         };
     }
 
+    /**
+     * Debounced function to check the current page and manage filter visibility
+     * Adds filter on inbox page and removes it on other pages
+     */
     const debouncedCheckAndAddFilter = debounce(() => {
         const isInInbox = window.location.pathname.includes('/inbox');
         if (isInInbox) {
@@ -165,6 +203,14 @@
         }
     }, 300);
 
+    /**
+     * Sets up DOM observers to watch for changes in Asana's interface
+     * Monitors:
+     * - General DOM changes for page navigation
+     * - Inbox container for new tasks
+     * - Inbox feed for archived items
+     * Updates the filter accordingly when changes are detected
+     */
     function observeDOM() {
         const observer = new MutationObserver(debouncedCheckAndAddFilter);
         observer.observe(document.body, {
@@ -203,6 +249,7 @@
         }
     }
 
+    // Initialize the script when the page loads
     window.addEventListener('load', () => {
         observeDOM();
         debouncedCheckAndAddFilter();
