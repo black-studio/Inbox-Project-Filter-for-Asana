@@ -22,3 +22,25 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Build e distribuzione
+dist/
+build/
+*.zip
+*.crx
+*.pem
+
+# Ambiente
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Coverage e test
+coverage/
+.nyc_output/
+.jest-cache/
+
+# Altri file specifici per estensioni Chrome
+.chrome/

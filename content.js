@@ -117,13 +117,23 @@
     function updateProjectList() {
         const tasks = document.querySelectorAll('.InboxExpandableThread');
         const projects = new Set();
+        let projectsFound = 0;
+
+        console.log(`Found ${tasks.length} tasks to scan for projects`);
 
         tasks.forEach(task => {
-            const projectTag = task.querySelector('.InboxIconAndNameContext-name--withDefaultColors');
+            // Try multiple possible selectors for project tags
+            const projectTag = 
+                task.querySelector('.InboxIconAndNameContext-name--withDefaultColors') || 
+                task.querySelector('[class*="InboxIconAndNameContext-name"]');
+                
             if (projectTag) {
                 projects.add(projectTag.textContent.trim());
+                projectsFound++;
             }
         });
+
+        console.log(`Found ${projectsFound} tasks with project tags, ${projects.size} unique projects`);
 
         const currentValue = projectFilter.value;
         projectFilter.innerHTML = '<option value="">Projects</option>';
@@ -139,20 +149,61 @@
     }
 
     /**
-     * Filters tasks based on the selected project
-     * Shows/hides tasks based on their project tag matching the selection
-     * Shows all tasks if no project is selected
+     * Determina se un thread della inbox appartiene a un progetto specifico
+     * @param {HTMLElement} thread - L'elemento thread della inbox
+     * @param {string} projectName - Il nome del progetto da cercare
+     * @returns {boolean} - True se il thread appartiene al progetto o se non ha progetto
+     */
+    function threadBelongsToProject(thread, projectName) {
+        // Se non è selezionato alcun progetto, mostra tutto
+        if (!projectName) return true;
+        
+        // Cerca il tag del progetto usando diversi selettori possibili
+        const projectTag = 
+            thread.querySelector('.InboxIconAndNameContext-name--withDefaultColors') || 
+            thread.querySelector('[class*="InboxIconAndNameContext-name"]');
+        
+        // Se troviamo un tag di progetto, confrontiamo il suo nome
+        if (projectTag) {
+            return projectTag.textContent.trim() === projectName;
+        }
+        
+        // Per i thread senza tag di progetto (come i riepiloghi AI),
+        // controlliamo se il titolo contiene il nome del progetto
+        const threadTitle = thread.querySelector('.InboxLinkifiedThreadTitle-link');
+        if (threadTitle) {
+            // Opzione 1: Nascondi tutti i thread senza tag di progetto esplicito
+            // return false;
+            
+            // Opzione 2: Mostra thread senza tag solo se il titolo contiene il nome del progetto
+            return threadTitle.textContent.includes(projectName);
+        }
+        
+        // Se non troviamo né tag né titolo, nascondiamo il thread quando è attivo un filtro
+        return false;
+    }
+
+    /**
+     * Filtra i task in base al progetto selezionato
+     * Mostra/nasconde i task in base al loro tag di progetto o al contenuto del titolo
      */
     function filterTasks() {
         const selectedProject = projectFilter.value;
-        const tasks = document.querySelectorAll('.InboxExpandableThread');
+        const threads = document.querySelectorAll('.InboxExpandableThread');
+        let matchedThreads = 0;
+        let totalThreads = 0;
 
-        tasks.forEach(task => {
-            const projectTag = task.querySelector('.InboxIconAndNameContext-name--withDefaultColors');
-            if (projectTag) {
-                task.style.display = (selectedProject === '' || projectTag.textContent.trim() === selectedProject) ? '' : 'none';
-            }
+        console.log(`Filtrando per progetto: "${selectedProject}"`);
+
+        threads.forEach(thread => {
+            totalThreads++;
+            const shouldShow = threadBelongsToProject(thread, selectedProject);
+            
+            if (shouldShow) matchedThreads++;
+            thread.style.display = shouldShow ? '' : 'none';
         });
+
+        console.log(`Filtrati ${totalThreads} thread, mostrati ${matchedThreads} thread`);
     }
 
     /**
