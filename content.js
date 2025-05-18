@@ -1,5 +1,6 @@
 (function() {
     'use strict';
+    console.log('[InboxFilter] Script executing - top level');
 
     // Polyfill for GM_addStyle to ensure compatibility with browsers 
     // that don't support Tampermonkey's GM_addStyle function
@@ -58,6 +59,8 @@
     // Global variables to store UI elements
     let projectFilter;  // Stores the select dropdown element
     let refreshIcon;    // Stores the refresh button element
+    
+    const MAX_RETRIES = 40; // Increased to 20 seconds (40 * 500ms)
 
     /**
      * Creates the project filter UI elements
@@ -97,7 +100,7 @@
 
         const toolbar = document.querySelector('.GlobalTopbarStructure-middleChildren, .GlobalTopbarStructure-search');
         if (!toolbar) {
-            console.warn('Asana Inbox Filter: Toolbar not found');
+            console.warn('[InboxFilter] Toolbar not found, cannot add filter UI.');
             return;
         }
 
@@ -117,25 +120,23 @@
     function updateProjectList() {
         const tasks = document.querySelectorAll('.InboxExpandableThread');
         const projects = new Set();
-        let projectsFound = 0;
-
-        console.log(`Found ${tasks.length} tasks to scan for projects`);
+        // console.log(`[InboxFilter] updateProjectList: Found ${tasks.length} tasks to scan for projects`);
 
         tasks.forEach(task => {
-            // Try multiple possible selectors for project tags
             const projectTag = 
                 task.querySelector('.InboxIconAndNameContext-name--withDefaultColors') || 
                 task.querySelector('[class*="InboxIconAndNameContext-name"]');
                 
             if (projectTag) {
                 projects.add(projectTag.textContent.trim());
-                projectsFound++;
             }
         });
 
-        console.log(`Found ${projectsFound} tasks with project tags, ${projects.size} unique projects`);
+        // console.log(`Found ${projectsFound} tasks with project tags, ${projects.size} unique projects`);
 
         const currentValue = projectFilter.value;
+        
+        projectFilter.removeEventListener('change', filterTasks);
         projectFilter.innerHTML = '<option value="">Projects</option>';
 
         Array.from(projects).sort().forEach(project => {
@@ -146,6 +147,7 @@
         });
 
         projectFilter.value = currentValue;
+        projectFilter.addEventListener('change', filterTasks);
     }
 
     /**
@@ -188,22 +190,26 @@
      * Mostra/nasconde i task in base al loro tag di progetto o al contenuto del titolo
      */
     function filterTasks() {
+        console.log('[InboxFilter] filterTasks function started.');
         const selectedProject = projectFilter.value;
         const threads = document.querySelectorAll('.InboxExpandableThread');
         let matchedThreads = 0;
         let totalThreads = 0;
 
-        console.log(`Filtrando per progetto: "${selectedProject}"`);
+        const now = new Date().toISOString();
+        console.log(`[InboxFilter] [${now}] filterTasks: Filtering for "${selectedProject}". ${threads.length} threads in DOM.`);
 
         threads.forEach(thread => {
             totalThreads++;
             const shouldShow = threadBelongsToProject(thread, selectedProject);
-            
             if (shouldShow) matchedThreads++;
             thread.style.display = shouldShow ? '' : 'none';
         });
 
-        console.log(`Filtrati ${totalThreads} thread, mostrati ${matchedThreads} thread`);
+        console.log(`[InboxFilter] [${now}] filterTasks: Finished. Showed ${matchedThreads}/${totalThreads} threads.`);
+        
+        console.log('[InboxFilter] filterTasks explicitly calling tryObserveInboxFeed.');
+        tryObserveInboxFeed();
     }
 
     /**
@@ -254,55 +260,94 @@
         }
     }, 300);
 
-    /**
-     * Sets up DOM observers to watch for changes in Asana's interface
-     * Monitors:
-     * - General DOM changes for page navigation
-     * - Inbox container for new tasks
-     * - Inbox feed for archived items
-     * Updates the filter accordingly when changes are detected
-     */
+    let archiveObserverInstance = null;
+    let inboxFeedObserverInterval = null;
+    let inboxFeedRetryCount = 0;
+
+    function tryObserveInboxFeed() {
+        const inboxFeed = document.querySelector('.InboxFeed');
+        if (inboxFeed) {
+            console.log('[InboxFilter] tryObserveInboxFeed: Inbox feed FOUND.', inboxFeed);
+            if (inboxFeedObserverInterval) {
+                clearInterval(inboxFeedObserverInterval);
+                inboxFeedObserverInterval = null;
+                inboxFeedRetryCount = 0; 
+            }
+
+            if (archiveObserverInstance && archiveObserverInstance.targetNode === inboxFeed) {
+                console.log('[InboxFilter] tryObserveInboxFeed: Observer already attached to this InboxFeed element.');
+                return; // Already observing the exact same element
+            }
+            if (archiveObserverInstance) { // It exists, but targetNode is different or null
+                archiveObserverInstance.disconnect();
+                console.log('[InboxFilter] tryObserveInboxFeed: Disconnected existing archiveObserverInstance from old/different target.');
+            }
+
+            archiveObserverInstance = new MutationObserver(debounce(() => {
+                const now = new Date().toISOString();
+                console.log(`[InboxFilter] [${now}] inboxFeedObserver (archiveObserverInstance) FIRED. Re-applying updateProjectList and filterTasks.`);
+                updateProjectList();
+                filterTasks();
+            }, 500));
+            archiveObserverInstance.observe(inboxFeed, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class'] 
+            });
+            archiveObserverInstance.targetNode = inboxFeed; // Store the node we are observing
+            console.log('[InboxFilter] tryObserveInboxFeed: Attached new archiveObserverInstance to:', inboxFeed);
+        } else {
+            inboxFeedRetryCount++;
+            if (inboxFeedRetryCount > MAX_RETRIES) {
+                console.warn(`[InboxFilter] Max retries (${MAX_RETRIES}) reached for inboxFeed. Observer not attached. Selector: '.InboxFeed'`);
+                if (inboxFeedObserverInterval) {
+                    clearInterval(inboxFeedObserverInterval);
+                    inboxFeedObserverInterval = null;
+                }
+                return;
+            }
+            console.log(`[InboxFilter] tryObserveInboxFeed: Inbox feed not found (attempt ${inboxFeedRetryCount}/${MAX_RETRIES}), will retry. Selector: '.InboxFeed'`);
+            if (!inboxFeedObserverInterval) {
+                inboxFeedObserverInterval = setInterval(tryObserveInboxFeed, 500);
+            }
+        }
+    }
+
     function observeDOM() {
-        const observer = new MutationObserver(debouncedCheckAndAddFilter);
-        observer.observe(document.body, {
+        const bodyObserver = new MutationObserver(() => {
+            console.log('[InboxFilter] Body MutationObserver FIRED. Running debouncedCheckAndAddFilter and re-evaluating tryObserveInboxFeed.');
+            debouncedCheckAndAddFilter(); 
+            tryObserveInboxFeed();      
+        });
+        bodyObserver.observe(document.body, {
             childList: true,
             subtree: true
         });
 
-        window.addEventListener('popstate', debouncedCheckAndAddFilter);
-        window.addEventListener('pushState', debouncedCheckAndAddFilter);
-        window.addEventListener('replaceState', debouncedCheckAndAddFilter);
+        window.addEventListener('popstate', () => {
+            console.log('[InboxFilter] popstate event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
+        });
+        window.addEventListener('pushState', () => {
+            console.log('[InboxFilter] pushState event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
+        });
+        window.addEventListener('replaceState', () => {
+            console.log('[InboxFilter] replaceState event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
+        });
 
-        const inboxContainer = document.querySelector('.InboxPage .SinglePaneScrollableContents');
-        if (inboxContainer) {
-            const taskObserver = new MutationObserver(() => {
-                updateProjectList();
-                filterTasks();
-            });
-            taskObserver.observe(inboxContainer, {
-                childList: true,
-                subtree: true
-            });
-        }
-
-        const inboxFeed = document.querySelector('.InboxFeed');
-        if (inboxFeed) {
-            const archiveObserver = new MutationObserver(debounce(() => {
-                updateProjectList();
-                filterTasks();
-            }, 500));
-            archiveObserver.observe(inboxFeed, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['class']
-            });
-        }
+        // Initial attempt
+        console.log('[InboxFilter] Initial call to tryObserveInboxFeed from observeDOM.');
+        tryObserveInboxFeed();
     }
 
-    // Initialize the script when the page loads
-    window.addEventListener('load', () => {
-        observeDOM();
-        debouncedCheckAndAddFilter();
-    });
+    // Initial call
+    console.log('[InboxFilter] Initial call to observeDOM and debouncedCheckAndAddFilter on script load.');
+    observeDOM();
+    debouncedCheckAndAddFilter();
 })();
