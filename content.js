@@ -118,6 +118,7 @@
      * Maintains the current selection when updating the list
      */
     function updateProjectList() {
+        if (!projectFilter) return;
         const tasks = document.querySelectorAll('.InboxExpandableThread');
         const projects = new Set();
         // console.log(`[InboxFilter] updateProjectList: Found ${tasks.length} tasks to scan for projects`);
@@ -190,6 +191,7 @@
      * Mostra/nasconde i task in base al loro tag di progetto o al contenuto del titolo
      */
     function filterTasks() {
+        if (!projectFilter) return;
         console.log('[InboxFilter] filterTasks function started.');
         const selectedProject = projectFilter.value;
         const threads = document.querySelectorAll('.InboxExpandableThread');
@@ -265,7 +267,17 @@
     let inboxFeedRetryCount = 0;
 
     function tryObserveInboxFeed() {
-        const inboxFeed = document.querySelector('.InboxFeed');
+        let inboxFeed = document.querySelector('.InboxFeed');
+
+        // Fallback: try to find the feed via a thread element if the main class is missing/renamed
+        if (!inboxFeed) {
+            const thread = document.querySelector('.InboxExpandableThread');
+            if (thread && thread.parentElement) {
+                inboxFeed = thread.parentElement;
+                console.log('[InboxFilter] tryObserveInboxFeed: Found inbox feed via fallback (thread parent).');
+            }
+        }
+
         if (inboxFeed) {
             console.log('[InboxFilter] tryObserveInboxFeed: Inbox feed FOUND.', inboxFeed);
             if (inboxFeedObserverInterval) {
