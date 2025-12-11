@@ -267,6 +267,11 @@
     let inboxFeedRetryCount = 0;
 
     function tryObserveInboxFeed() {
+        // Early return if not on inbox page - no point looking for InboxFeed
+        if (!window.location.pathname.includes('/inbox')) {
+            return;
+        }
+
         let inboxFeed = document.querySelector('.InboxFeed');
 
         // Fallback: try to find the feed via a thread element if the main class is missing/renamed
