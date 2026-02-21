@@ -8,9 +8,9 @@ Chrome Manifest V3 extension that adds project filtering to the Asana Inbox. Ope
 
 ## Architecture
 
-**background.js** — Service worker that listens for `chrome.webNavigation.onCompleted` on `https://app.asana.com/*` and re-injects `content.js` on SPA navigation (main frame only).
+**background.js** — Empty service worker, kept in manifest for future use. Content script injection and SPA navigation are handled entirely by `content.js`.
 
-**content.js** — Main logic, wrapped in an IIFE. Injects filter UI (dropdown + refresh button) into Asana's toolbar and uses MutationObservers to reactively filter inbox threads by project.
+**content.js** — Main logic, wrapped in an IIFE with a `window.__inboxFilterLoaded` guard to prevent double execution. Injects filter UI (dropdown + refresh button) into Asana's toolbar and uses MutationObservers to reactively filter inbox threads by project. Monkey-patches `history.pushState`/`replaceState` to intercept SPA navigation.
 
 ### DOM Observation Strategy
 
@@ -42,7 +42,7 @@ Multiple fallback selectors handle Asana's evolving class names:
 | `filterTasks()` | Shows/hides threads based on selected project |
 | `threadBelongsToProject()` | Core matching logic per thread |
 | `tryObserveInboxFeed()` | Retry loop to attach InboxFeed MutationObserver |
-| `observeDOM()` | Sets up body observer + history API event listeners |
+| `observeDOM()` | Sets up body observer + history API monkey-patches |
 
 ## Development
 
@@ -75,4 +75,4 @@ All logs use `[InboxFilter]` prefix. Key patterns:
 
 ## Manifest Configuration
 
-Version 1.2, Manifest V3. Content script injected via both `content_scripts` in manifest (initial load) and `background.js` service worker (SPA navigation). Permissions: `activeTab`, `webNavigation`, `scripting`. Host: `https://app.asana.com/*` only.
+Version 1.2, Manifest V3. Content script injected via `content_scripts` in manifest. `background.js` is an empty service worker kept for future use. Permissions: `activeTab`, `webNavigation`, `scripting`. Host: `https://app.asana.com/*` only.
