@@ -4,94 +4,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Chrome Manifest V3 extension that adds project filtering functionality to the Asana Inbox. It operates entirely client-side without requiring any API access, using DOM manipulation to inject UI elements and filter notifications by project.
+Chrome Manifest V3 extension that adds project filtering to the Asana Inbox. Operates entirely client-side via DOM manipulation — no API access, no build system, no dependencies.
 
 ## Architecture
 
-### Core Components
+**background.js** — Service worker that listens for `chrome.webNavigation.onCompleted` on `https://app.asana.com/*` and re-injects `content.js` on SPA navigation (main frame only).
 
-**background.js** - Service worker that handles navigation events
-- Listens for `chrome.webNavigation.onCompleted` events on `https://app.asana.com/*`
-- Injects `content.js` into the page when navigation completes (main frame only)
-- Handles script execution errors
+**content.js** — Main logic, wrapped in an IIFE. Injects filter UI (dropdown + refresh button) into Asana's toolbar and uses MutationObservers to reactively filter inbox threads by project.
 
-**content.js** - Main filtering logic, runs in the context of Asana pages
-- Wrapped in an IIFE to avoid polluting global scope
-- Injects custom CSS styles using a `GM_addStyle` polyfill
-- Creates and manages the filter UI (dropdown + refresh button)
-- Implements MutationObserver-based reactive updates
+### DOM Observation Strategy
 
-### Key Architecture Patterns
+Three-layer approach to handle Asana's SPA:
+1. **Body observer** — watches for route changes and major DOM updates, triggers `debouncedCheckAndAddFilter` (300ms debounce)
+2. **InboxFeed observer** (`archiveObserverInstance`) — watches for task list mutations (archive, add, class changes), triggers `updateProjectList` + `filterTasks` (500ms debounce)
+3. **Retry loop** (`tryObserveInboxFeed`) — polls every 500ms up to `MAX_RETRIES` (40) to find the InboxFeed element, since Asana renders it asynchronously
 
-**DOM Observation Strategy**: The extension uses a multi-layered observation approach to handle Asana's dynamic SPA:
-1. Body-level observer watches for route changes and major DOM updates
-2. InboxFeed-specific observer watches for task list mutations (archive, add, etc.)
-3. Retry mechanism (`MAX_RETRIES = 40`) handles delayed DOM element availability
-4. Debouncing (300ms for route changes, 500ms for feed updates) prevents excessive re-renders
+### Selector Resilience
 
-**Selector Resilience**: Multiple fallback selectors handle Asana's evolving class names:
-- Primary: `.InboxIconAndNameContext-name--withDefaultColors`
-- Fallback: `[class*="InboxIconAndNameContext-name"]` (attribute substring match)
-- Thread detection fallback: Uses parent element of `.InboxExpandableThread` if `.InboxFeed` is unavailable
+Multiple fallback selectors handle Asana's evolving class names:
+- Project tags: `.InboxIconAndNameContext-name--withDefaultColors` → `[class*="InboxIconAndNameContext-name"]`
+- Toolbar injection: `.GlobalTopbarStructure-middleChildren` → `.GlobalTopbarStructure-search`
+- Feed container: `.InboxFeed` → parent element of `.InboxExpandableThread`
 
-**Filter Logic** (`threadBelongsToProject`):
-- Threads with explicit project tags are matched against tag text
-- Threads without project tags (e.g., AI summaries) are matched against title content
-- When no project is selected, all threads are visible
+### Filter Logic (`threadBelongsToProject`)
+
+- Threads with explicit project tags: exact match against tag text
+- Threads without tags (e.g. AI summaries): checked via `InboxLinkifiedThreadTitle-link` title content (configurable — see commented alternatives in the function)
+- No project selected: all threads visible
+
+### Key Functions
+
+| Function | Purpose |
+|---|---|
+| `createProjectFilter()` | Builds the dropdown + refresh button DOM elements |
+| `addProjectFilter()` | Injects UI into Asana toolbar, idempotent |
+| `updateProjectList()` | Scans threads for project names, preserves current selection |
+| `filterTasks()` | Shows/hides threads based on selected project |
+| `threadBelongsToProject()` | Core matching logic per thread |
+| `tryObserveInboxFeed()` | Retry loop to attach InboxFeed MutationObserver |
+| `observeDOM()` | Sets up body observer + history API event listeners |
 
 ## Development
 
-### Testing the Extension
+No build step, no package manager, no tests. Pure vanilla JS.
 
-1. Load unpacked extension in Chrome:
-   ```
-   chrome://extensions/ → Enable Developer mode → Load unpacked → Select this directory
-   ```
+### Loading the Extension
 
-2. Navigate to `https://app.asana.com/` and open the Inbox to test filtering
-
-3. Monitor console logs - all significant events are logged with `[InboxFilter]` prefix
+1. `chrome://extensions/` → Enable Developer mode → Load unpacked → Select this directory
+2. Navigate to `https://app.asana.com/` → open Inbox
+3. After code changes: click the refresh icon on `chrome://extensions/` and reload the Asana tab
 
 ### Debugging
 
-The extension includes extensive logging. Key log patterns:
-- `[InboxFilter] Script executing - top level` - Script initialization
-- `[InboxFilter] tryObserveInboxFeed: Inbox feed FOUND` - Observer attachment success
-- `[InboxFilter] [ISO timestamp] filterTasks: Filtering for "ProjectName"` - Filter execution
-- `[InboxFilter] Max retries (40) reached` - Observer attachment failed
-
-Check console when:
-- Filter UI doesn't appear → Look for toolbar element warnings
-- Filtering doesn't work → Check thread count and match logs
-- Observer errors → Check for selector changes in Asana's DOM
+All logs use `[InboxFilter]` prefix. Key patterns:
+- `Script executing - top level` — script initialized
+- `tryObserveInboxFeed: Inbox feed FOUND` — observer attached
+- `filterTasks: Filtering for "X"` — filter applied with thread counts
+- `Max retries (40) reached` — InboxFeed element never appeared
 
 ### Making Changes
 
-**Updating selectors**: If Asana changes their class names:
-- Primary selectors are in `updateProjectList()` (lines 128-129) and `threadBelongsToProject()` (lines 165-167)
-- Toolbar selector is in `addProjectFilter()` (line 101)
-- Thread selector is used throughout: `.InboxExpandableThread`
+**Updating selectors** — If Asana changes class names, update in these functions:
+- `updateProjectList()` and `threadBelongsToProject()` — project tag selectors
+- `addProjectFilter()` — toolbar selector
+- `tryObserveInboxFeed()` — feed container selector
 
-**Modifying filter behavior**:
-- `threadBelongsToProject()` (lines 160-187) controls visibility logic
-- Line 182 has commented alternatives for handling threads without project tags
+**Adjusting timing** — `MAX_RETRIES` controls feed detection timeout (40 × 500ms = 20s). Debounce delays are in `debouncedCheckAndAddFilter` (300ms) and the InboxFeed observer callback (500ms).
 
-**Adjusting timing**:
-- `MAX_RETRIES` at line 63 controls how long to wait for InboxFeed element (500ms × retries)
-- Debounce delays at lines 263 (route changes) and 303 (feed updates)
+**CSS** — All styles injected via `GM_addStyle` polyfill at top of content.js, with `!important` auto-appended to all declarations.
 
 ## Manifest Configuration
 
-Version: 1.2 (Manifest V3)
-- Host permissions: `https://app.asana.com/*` only
-- Required permissions: `activeTab`, `webNavigation`, `scripting`
-- Content script automatically injected via manifest for initial page load
-- Service worker re-injects on navigation (handles SPA route changes)
-
-## Common Issues
-
-**Filter doesn't appear**: Asana may have changed toolbar class names (`.GlobalTopbarStructure-middleChildren` or `.GlobalTopbarStructure-search`)
-
-**Projects not detected**: Check if Asana changed project tag class names (search for `InboxIconAndNameContext-name`)
-
-**Observer not attaching**: Check console for max retry warnings - selector for `.InboxFeed` may need updating
+Version 1.2, Manifest V3. Content script injected via both `content_scripts` in manifest (initial load) and `background.js` service worker (SPA navigation). Permissions: `activeTab`, `webNavigation`, `scripting`. Host: `https://app.asana.com/*` only.

@@ -1,5 +1,7 @@
 (function() {
     'use strict';
+    if (window.__inboxFilterLoaded) return;
+    window.__inboxFilterLoaded = true;
     console.log('[InboxFilter] Script executing - top level');
 
     // Polyfill for GM_addStyle to ensure compatibility with browsers 
@@ -9,7 +11,6 @@
         head = document.getElementsByTagName('head')[0];
         if (!head) { return; }
         style = document.createElement('style');
-        style.type = 'text/css';
         style.innerHTML = css.replace(/;/g, ' !important;');
         head.appendChild(style);
     }
@@ -33,7 +34,11 @@
             box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
             transition: all 0.3s ease;
             cursor: pointer;
-            width: 200px;
+            min-width: 200px;
+            max-width: 350px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
             outline: none;
         }
         #project-filter:hover {
@@ -121,7 +126,6 @@
         if (!projectFilter) return;
         const tasks = document.querySelectorAll('.InboxExpandableThread');
         const projects = new Set();
-        // console.log(`[InboxFilter] updateProjectList: Found ${tasks.length} tasks to scan for projects`);
 
         tasks.forEach(task => {
             const projectTag = 
@@ -132,8 +136,6 @@
                 projects.add(projectTag.textContent.trim());
             }
         });
-
-        // console.log(`Found ${projectsFound} tasks with project tags, ${projects.size} unique projects`);
 
         const currentValue = projectFilter.value;
         
@@ -209,9 +211,16 @@
         });
 
         console.log(`[InboxFilter] [${now}] filterTasks: Finished. Showed ${matchedThreads}/${totalThreads} threads.`);
-        
-        console.log('[InboxFilter] filterTasks explicitly calling tryObserveInboxFeed.');
-        tryObserveInboxFeed();
+
+        // Hide/show non-thread elements (e.g. "Le tue attività scadute", "Progetti in corso")
+        const transitionGroup = document.querySelector('.InboxFeed-transitionGroup');
+        if (transitionGroup) {
+            Array.from(transitionGroup.children).forEach(child => {
+                if (!child.querySelector('.InboxExpandableThread')) {
+                    child.style.display = selectedProject ? 'none' : '';
+                }
+            });
+        }
     }
 
     /**
@@ -333,9 +342,8 @@
 
     function observeDOM() {
         const bodyObserver = new MutationObserver(() => {
-            console.log('[InboxFilter] Body MutationObserver FIRED. Running debouncedCheckAndAddFilter and re-evaluating tryObserveInboxFeed.');
-            debouncedCheckAndAddFilter(); 
-            tryObserveInboxFeed();      
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
         });
         bodyObserver.observe(document.body, {
             childList: true,
@@ -343,28 +351,28 @@
         });
 
         window.addEventListener('popstate', () => {
-            console.log('[InboxFilter] popstate event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
-            debouncedCheckAndAddFilter();
-            tryObserveInboxFeed();
-        });
-        window.addEventListener('pushState', () => {
-            console.log('[InboxFilter] pushState event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
-            debouncedCheckAndAddFilter();
-            tryObserveInboxFeed();
-        });
-        window.addEventListener('replaceState', () => {
-            console.log('[InboxFilter] replaceState event. Calling debouncedCheckAndAddFilter and tryObserveInboxFeed.');
             debouncedCheckAndAddFilter();
             tryObserveInboxFeed();
         });
 
+        // Monkey-patch History API to intercept SPA navigation
+        const originalPushState = history.pushState;
+        history.pushState = function(...args) {
+            originalPushState.apply(this, args);
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
+        };
+        const originalReplaceState = history.replaceState;
+        history.replaceState = function(...args) {
+            originalReplaceState.apply(this, args);
+            debouncedCheckAndAddFilter();
+            tryObserveInboxFeed();
+        };
+
         // Initial attempt
-        console.log('[InboxFilter] Initial call to tryObserveInboxFeed from observeDOM.');
         tryObserveInboxFeed();
     }
 
-    // Initial call
-    console.log('[InboxFilter] Initial call to observeDOM and debouncedCheckAndAddFilter on script load.');
     observeDOM();
     debouncedCheckAndAddFilter();
 })();
